@@ -66,6 +66,7 @@ namespace HolloFox
 
         internal static string RequestReceived(string message, string arg2, SourceRole arg3)
         {
+            if (!LocalPlayer.Rights.CanGm) return null;
             var request = new AudioDataRequest();
             request.FromCSV(message);
             if (!AudioPlugin.Audio.ContainsKey(request.AudioType)) return null;
