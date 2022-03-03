@@ -4,6 +4,8 @@ using Bounce.Unmanaged;
 using HarmonyLib;
 using System;
 using System.Collections.Generic;
+using RPCPlugin.RPC;
+using TaleSpire.Atmosphere;
 using Unity.Collections;
 using Unity.Entities;
 using UnityEngine;
@@ -32,10 +34,46 @@ namespace HolloFox
         }
     }
 
+    [HarmonyPatch(typeof(AtmosphereManager), "TryPlayMusic")]
+    public class LoadedPlayIfNeededPatch
+    {
+        private static NGuid previousMusic;
+        private static NGuid currentMusic;
+
+        private static NGuid previousAmbient;
+        private static NGuid currentAmbient;
+
+        static bool Prefix(NGuid id, AtmosphereReferenceData ____transferRefData)
+        {
+            if (AssetDb.Music.TryGetValue(id, out var data))
+            {
+                ref MusicData local = ref data.Value;
+                if (local.Kind == MusicData.MusicKind.Ambient)
+                {
+                    previousAmbient = currentAmbient;
+                    currentAmbient = id;
+                    return previousAmbient != currentAmbient;
+                }
+
+                previousMusic = currentMusic;
+                currentMusic = id;
+                return previousMusic != currentMusic;
+            }
+            var request = new Network.AudioDataRequest
+            {
+                NGuid = id,
+                AudioType = ____transferRefData.AmbientMusic == id ? "Ambient" : "Music"
+            };
+            RPCManager.SendMessage($"{AudioPlugin.Guid}.TrackRequestSent{request.ToCSV()}", LocalPlayer.Id.Value);
+            return true;
+        }
+    }
+
+
     [HarmonyPatch(typeof(AtmosphereManager.LoadedAudioClip), "Load")]
     public class LoadedAudioClipLoadPatch
     {
-        static bool Prefix(System.Action<AtmosphereManager.LoadedAudioClip, AudioClip> ClipLoaded,
+        static bool Prefix(Action<AtmosphereManager.LoadedAudioClip, AudioClip> ClipLoaded,
             ref AudioClip ____clip,
             ref AtmosphereManager.LoadedAudioClip __instance
         )

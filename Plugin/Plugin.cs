@@ -10,12 +10,16 @@ using HarmonyLib;
 using LordAshes;
 using UnityEngine;
 using UnityEngine.Networking;
+using RPCPlugin;
+using RPCPlugin.RPC;
+using Talespire;
 
 namespace HolloFox
 {
 
     [BepInPlugin(Guid, Name, Version)]
     [BepInDependency(FileAccessPlugin.Guid)]
+    [BepInDependency(RPCPlugin.RPCPlugin.Guid)]
     public partial class AudioPlugin : BaseUnityPlugin
     {
         static AudioPlugin _singleton;
@@ -80,6 +84,9 @@ namespace HolloFox
             }
 
             Utility.PostOnMainPage(this.GetType());
+
+            RPCManager.AddHandler($"{Guid}.TrackRequestSent",Network.RequestReceived);
+            RPCManager.AddHandler($"{Guid}.TrackRequestReceived", Network.ResponseReceived);
         }
 
         internal static void LoadAudioCallback(object[] args) => _singleton.StartCoroutine("LoadAudioFromSource", args);
