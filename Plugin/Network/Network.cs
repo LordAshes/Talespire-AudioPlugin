@@ -7,6 +7,7 @@ using RPCPlugin.RPC;
 using Talespire;
 using Unity.Collections;
 using Unity.Entities;
+using UnityEngine;
 
 namespace HolloFox
 {
@@ -19,17 +20,20 @@ namespace HolloFox
             
             public NGuid NGuid
             {
-                get => new NGuid(new Guid(Guid));
+                get => new NGuid(Guid);
                 set => Guid = value.ToString();
             }
 
             public string ToCSV()
             {
-                return $"{Guid},{AudioType}";
+                var o = $"{Guid},{AudioType}";
+                Debug.Log(o);
+                return o;
             }
 
             public void FromCSV(string text)
             {
+                Debug.Log(text);
                 var x = text.Split(',');
                 Guid = x[0];
                 AudioType = x[1];
@@ -45,11 +49,14 @@ namespace HolloFox
 
             public string ToCSV()
             {
-                return $"{Guid},{AudioType},{Name},{Source}";
+                var o = $"{Guid},{AudioType},{Name},{Source}";
+                Debug.Log(o);
+                return o;
             }
 
             public void FromCSV(string text)
             {
+                Debug.Log(text);
                 var x = text.Split(',');
                 Guid = x[0];
                 AudioType = x[1];
@@ -59,13 +66,15 @@ namespace HolloFox
 
             public NGuid NGuid
             {
-                get => new NGuid(new Guid(Guid));
+                get => new NGuid(Guid);
                 set => Guid = value.ToString();
             }
         }
 
         internal static string RequestReceived(string message, string arg2, SourceRole arg3)
         {
+            message = message.Replace($"{AudioPlugin.Guid}.TrackRequestSent", "");
+            Debug.Log(message);
             if (!LocalPlayer.Rights.CanGm) return null;
             var request = new AudioDataRequest();
             request.FromCSV(message);
@@ -85,6 +94,8 @@ namespace HolloFox
 
         internal static string ResponseReceived(string message, string arg2, SourceRole arg3)
         {
+            message = message.Replace($"{AudioPlugin.Guid}.TrackRequestReceived","");
+            Debug.Log(message);
             var response = new AudioDataResponse();
             response.FromCSV(message);
             if (!AudioPlugin.Audio.ContainsKey(response.AudioType))
