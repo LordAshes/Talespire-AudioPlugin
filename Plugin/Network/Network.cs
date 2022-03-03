@@ -80,14 +80,17 @@ namespace HolloFox
             request.FromCSV(message);
             if (!AudioPlugin.Audio.ContainsKey(request.AudioType)) return null;
             if (!AudioPlugin.Audio[request.AudioType].ContainsKey(request.NGuid)) return null;
-            var response = new AudioDataResponse
+            if (AudioPlugin.Audio[request.AudioType][request.NGuid].source.StartsWith("http"))
             {
-                AudioType = request.AudioType,
-                Guid = request.Guid,
-                Name = AudioPlugin.Audio[request.AudioType][request.NGuid].name,
-                Source = AudioPlugin.Audio[request.AudioType][request.NGuid].source
-            }.ToCSV();
-            RPCManager.SendMessage($"{AudioPlugin.Guid}.TrackRequestReceived{response}", LocalPlayer.Id.Value);
+                var response = new AudioDataResponse
+                {
+                    AudioType = request.AudioType,
+                    Guid = request.Guid,
+                    Name = AudioPlugin.Audio[request.AudioType][request.NGuid].name,
+                    Source = AudioPlugin.Audio[request.AudioType][request.NGuid].source
+                }.ToCSV();
+                RPCManager.SendMessage($"{AudioPlugin.Guid}.TrackRequestReceived{response}", LocalPlayer.Id.Value);
+            }
 
             return null;
         }
