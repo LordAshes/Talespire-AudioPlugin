@@ -28,7 +28,7 @@ namespace HolloFox
         // Plugin info
         public const string Name = "Audio Plug-In";
         public const string Guid = "org.hollofox.plugins.audio";
-        public const string Version = "2.0.1.0";
+        public const string Version = "2.0.2.0";
 
         public enum ShareStyle
         {
@@ -53,7 +53,10 @@ namespace HolloFox
         public static string pluginFolder = System.IO.Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location);
 
         // Variables
-        public static Dictionary<string, Dictionary<NGuid, AudioData>> Audio = new Dictionary<string, Dictionary<NGuid, AudioData>>();
+        public static Dictionary<string, Dictionary<NGuid, AudioData>> Audio = new Dictionary<string, Dictionary<NGuid, AudioData>>{
+            {"Music", new  Dictionary<NGuid, AudioData>()},
+            {"Ambient", new  Dictionary<NGuid, AudioData>()}
+        };
         public static ShareData Share = new ShareData();
 
         internal static bool subscribed = false;
