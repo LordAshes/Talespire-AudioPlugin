@@ -4,12 +4,15 @@ using System.Collections.Generic;
 using System.Linq;
 using BepInEx;
 using BepInEx.Configuration;
+using BepInEx.Logging;
 using Bounce.BlobAssets;
 using Bounce.TaleSpire.AssetManagement;
 using Bounce.Unmanaged;
 using HarmonyLib;
 using LordAshes;
+using ModdingTales;
 using Newtonsoft.Json;
+using PluginUtilities;
 using Unity.Collections;
 using Unity.Entities;
 using UnityEngine;
@@ -17,9 +20,9 @@ using UnityEngine.Networking;
 
 namespace HolloFox
 {
-
     [BepInPlugin(Guid, Name, Version)]
     [BepInDependency(FileAccessPlugin.Guid)]
+    [BepInDependency(SetInjectionFlag.Guid)]
     [BepInDependency("org.lordashes.plugins.assetdata", BepInDependency.DependencyFlags.SoftDependency)]
     public partial class AudioPlugin : BaseUnityPlugin
     {
@@ -28,7 +31,7 @@ namespace HolloFox
         // Plugin info
         public const string Name = "Audio Plug-In";
         public const string Guid = "org.hollofox.plugins.audio";
-        public const string Version = "2.0.2.0";
+        public const string Version = "2.1.0.0";
 
         public enum ShareStyle
         {
@@ -50,27 +53,45 @@ namespace HolloFox
             public List<AudioData> RemoteAudio = new List<AudioData>();
         }
 
-        public static string pluginFolder = System.IO.Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location);
+        public static string pluginFolder =
+            System.IO.Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location);
 
         // Variables
-        public static Dictionary<string, Dictionary<NGuid, AudioData>> Audio = new Dictionary<string, Dictionary<NGuid, AudioData>>{
-            {"Music", new  Dictionary<NGuid, AudioData>()},
-            {"Ambient", new  Dictionary<NGuid, AudioData>()}
-        };
+        public static Dictionary<string, Dictionary<NGuid, AudioData>> Audio =
+            new Dictionary<string, Dictionary<NGuid, AudioData>>
+            {
+                { "Music", new Dictionary<NGuid, AudioData>() },
+                { "Ambient", new Dictionary<NGuid, AudioData>() }
+            };
+
         public static ShareData Share = new ShareData();
 
         internal static bool subscribed = false;
+        private static ConfigEntry<ModdingUtils.LogLevel> LogLevelConfig { get; set; }
         static ConfigEntry<KeyboardShortcut> triggerShare { get; set; }
         static ConfigEntry<ShareStyle> shareStyle { get; set; }
+
+        internal static ManualLogSource _logger;
+
+        internal static ModdingUtils.LogLevel LogLevel => LogLevelConfig.Value == ModdingUtils.LogLevel.Inherited
+            ? ModdingUtils.LogLevelConfig.Value
+            : LogLevelConfig.Value;
+
 
         /// <summary>
         /// Awake plugin
         /// </summary>
         void Awake()
         {
-            Debug.Log("Audio Plugin: Active (" + this.GetType().AssemblyQualifiedName + ")");
+            _logger = Logger;
+            LogLevelConfig = Config.Bind("Logging", "Log Level", ModdingUtils.LogLevel.Inherited);
 
-            triggerShare = Config.Bind("Settings", "Share Remote Audio Library", new KeyboardShortcut(KeyCode.A, KeyCode.RightControl));
+
+            if (LogLevel > ModdingUtils.LogLevel.None)
+                _logger.LogInfo("Active (" + this.GetType().AssemblyQualifiedName + ")");
+
+            triggerShare = Config.Bind("Settings", "Share Remote Audio Library",
+                new KeyboardShortcut(KeyCode.A, KeyCode.RightControl));
             shareStyle = Config.Bind("Settings", "Share Style", ShareStyle.useOnly);
 
             _singleton = this;
@@ -84,10 +105,13 @@ namespace HolloFox
                 LoadAudio(folder.ToString(), ref Share.RemoteAudio);
             }
 
-            SoftDependency.Invoke("LordAshes.AssetDataPlugin, AssetDataPlugin", "SubscribeViaReflection", new object[] { AudioPlugin.Guid, "HolloFox.AudioPlugin, AudioPlugin", "AudioRequestHandler" });
-            SoftDependency.Invoke("LordAshes.AssetDataPlugin, AssetDataPlugin", "SubscribeViaReflection", new object[] { AudioPlugin.Guid + ".Register", "HolloFox.AudioPlugin, AudioPlugin", "AudioRequestHandler" });
+            SoftDependency.Invoke("LordAshes.AssetDataPlugin, AssetDataPlugin", "SubscribeViaReflection",
+                new object[] { AudioPlugin.Guid, "HolloFox.AudioPlugin, AudioPlugin", "AudioRequestHandler" });
+            SoftDependency.Invoke("LordAshes.AssetDataPlugin, AssetDataPlugin", "SubscribeViaReflection",
+                new object[]
+                    { AudioPlugin.Guid + ".Register", "HolloFox.AudioPlugin, AudioPlugin", "AudioRequestHandler" });
 
-            Utility.PostOnMainPage(this.GetType());
+            ModdingUtils.Initialize(this, Logger, "Plugin Masters'");
         }
 
         void Update()
@@ -96,40 +120,51 @@ namespace HolloFox
             {
                 if (Share.RemoteAudio.Count > 0)
                 {
-                    SoftDependency.InvokeEx("LordAshes.AssetDataPlugin, AssetDataPlugin", "SendInfo", new object[] { AudioPlugin.Guid + ".Register", JsonConvert.SerializeObject(Share) });
+                    SoftDependency.InvokeEx("LordAshes.AssetDataPlugin, AssetDataPlugin", "SendInfo",
+                        new object[] { AudioPlugin.Guid + ".Register", JsonConvert.SerializeObject(Share, Utility.options) });
                 }
             }
         }
 
-        public static void AudioRequestHandler(string action, string identity, string key, object previous, object value)
+        public static void AudioRequestHandler(string action, string identity, string key, object previous,
+            object value)
         {
-            switch(key)
+            switch (key)
             {
-                case AudioPlugin.Guid + ".Register":
-                  // Register Audio
-                  Debug.Log("Audio Plugin: Registering Remote Library");
-                  ShareData shareData = JsonConvert.DeserializeObject<ShareData>(value.ToString());
-                  ShareStyle shareSetting = shareData.Style & shareStyle.Value;
-                  Debug.Log("Audio Plugin: GM Set " + shareData.Style + ", Player Set " + shareStyle.Value+", Using "+shareSetting);
-                  foreach (AudioData audio in shareData.RemoteAudio)
-                  {
-                      if (shareSetting == ShareStyle.copyLocal)
-                      {
-                          Debug.Log("Audio Plugin: Creating " + pluginFolder + "/CustomData/Audio/" + audio.category + "/" + audio.name + ".www");
-                          FileAccessPlugin.File.WriteAllText(pluginFolder + "/CustomData/Audio/" + audio.category + "/" + audio.name + ".www", audio.source);
-                      }
-                      RegisterAudioSource(audio);
-                  }
-                  break;
+                case Guid + ".Register":
+                    // Register Audio
+                    if (LogLevel > ModdingUtils.LogLevel.None) _logger.LogInfo("Registering Remote Library");
+                    ShareData shareData = JsonConvert.DeserializeObject<ShareData>(value.ToString(), Utility.options);
+                    ShareStyle shareSetting = shareData.Style & shareStyle.Value;
+                    if (LogLevel > ModdingUtils.LogLevel.Low)
+                        _logger.LogInfo("GM Set " + shareData.Style + ", Player Set " + shareStyle.Value + ", Using " +
+                                        shareSetting);
+                    foreach (AudioData audio in shareData.RemoteAudio)
+                    {
+                        if (shareSetting == ShareStyle.copyLocal)
+                        {
+                            if (LogLevel > ModdingUtils.LogLevel.Medium)
+                                _logger.LogInfo("Creating " + pluginFolder + "/CustomData/Audio/" + audio.category +
+                                                "/" + audio.name + ".www");
+                            FileAccessPlugin.File.WriteAllText(
+                                pluginFolder + "/CustomData/Audio/" + audio.category + "/" + audio.name + ".www",
+                                audio.source);
+                        }
+
+                        RegisterAudioSource(audio);
+                    }
+
+                    break;
                 default:
-                  // Play Audio
-                  Debug.Log("Audio Plugin: Remote Audio Request For " + value);
-                  string[] parts = value.ToString().Split('@');
-                  if ((parts[0] == CampaignSessionManager.GetPlayerName(LocalPlayer.Id)) || (parts[0] == ""))
-                  {
-                    _singleton.StartCoroutine("PlayAudio", new object[] { parts[1] });
-                  }
-                  break;
+                    // Play Audio
+                    if (LogLevel > ModdingUtils.LogLevel.None) _logger.LogInfo("Remote Audio Request For " + value);
+                    string[] parts = value.ToString().Split('@');
+                    if ((parts[0] == CampaignSessionManager.GetPlayerName(LocalPlayer.Id)) || (parts[0] == ""))
+                    {
+                        _singleton.StartCoroutine("PlayAudio", new object[] { parts[1] });
+                    }
+
+                    break;
             }
         }
 
@@ -140,25 +175,31 @@ namespace HolloFox
         private void LoadAudio(string SubFolder, ref List<AudioData> remoteAudio)
         {
             var files = FileAccessPlugin.File.Find($"CustomData\\Audio\\{SubFolder}")
-                        .Where(f =>
-                            f.EndsWith(".mp3") ||
-                            f.EndsWith(".aif") ||
-                            f.EndsWith(".wav") ||
-                            f.EndsWith(".ogg") ||
-                            f.EndsWith(".www")
-                        );
+                .Where(f =>
+                    f.EndsWith(".mp3") ||
+                    f.EndsWith(".aif") ||
+                    f.EndsWith(".wav") ||
+                    f.EndsWith(".ogg") ||
+                    f.EndsWith(".www")
+                );
 
             foreach (var file in files)
             {
-                AudioData audio = new AudioData() 
-                { 
-                    id = GenerateID(System.IO.Path.GetFileNameWithoutExtension(file)).ToString(), 
-                    name = System.IO.Path.GetFileNameWithoutExtension(file), 
-                    category = SubFolder, 
-                    source = ((System.IO.Path.GetExtension(file).ToUpper() == ".WWW") ? FileAccessPlugin.File.ReadAllText(file) : $"file:///{file}")  
+                AudioData audio = new AudioData()
+                {
+                    id = GenerateID(System.IO.Path.GetFileNameWithoutExtension(file)).ToString(),
+                    name = System.IO.Path.GetFileNameWithoutExtension(file),
+                    category = SubFolder,
+                    source = ((System.IO.Path.GetExtension(file).ToUpper() == ".WWW")
+                        ? FileAccessPlugin.File.ReadAllText(file)
+                        : $"file:///{file}")
                 };
 
-                if (!Audio.ContainsKey(SubFolder)) { Audio.Add(SubFolder, new Dictionary<NGuid, AudioData>()); }
+                if (!Audio.ContainsKey(SubFolder))
+                {
+                    Audio.Add(SubFolder, new Dictionary<NGuid, AudioData>());
+                }
+
                 NGuid id = new NGuid(audio.id);
                 if (!Audio[SubFolder].ContainsKey(id))
                 {
@@ -166,17 +207,29 @@ namespace HolloFox
                 }
                 else
                 {
-                    Debug.LogWarning("Audio Plugin: Duplicated Id '"+id.ToString()+"' From '"+Convert.ToString(audio.name)+"' ("+Convert.ToString(audio.source)+")");
+                    if (LogLevel > ModdingUtils.LogLevel.None)
+                        Logger.LogWarning("Duplicated Id '" + id.ToString() + "' From '" +
+                                          Convert.ToString(audio.name) + "' (" + Convert.ToString(audio.source) + ")");
                 }
-                if(System.IO.Path.GetExtension(file).ToUpper() == ".WWW") { remoteAudio.Add(audio); }
-                Debug.Log("Audio Plugin: Registered '" + name + "' (" + audio.source + ") in '" + SubFolder + "'");
+
+                if (System.IO.Path.GetExtension(file).ToUpper() == ".WWW")
+                {
+                    remoteAudio.Add(audio);
+                }
+
+                if (LogLevel > ModdingUtils.LogLevel.Low)
+                    _logger.LogInfo("Registered '" + name + "' (" + audio.source + ") in '" + SubFolder + "'");
             }
         }
 
         private static void RegisterAudioSource(AudioData audio)
         {
             NGuid id = new NGuid(audio.id);
-            if (!Audio.ContainsKey(audio.category)) { Audio.Add(audio.category, new Dictionary<NGuid, AudioData>()); }
+            if (!Audio.ContainsKey(audio.category))
+            {
+                Audio.Add(audio.category, new Dictionary<NGuid, AudioData>());
+            }
+
             if (!Audio[audio.category].ContainsKey(id))
             {
                 Audio[audio.category].Add(id, audio);
@@ -184,19 +237,29 @@ namespace HolloFox
                 MusicData.MusicKind kind = MusicData.MusicKind.Music;
                 foreach (MusicData.MusicKind kindType in Enum.GetValues(typeof(MusicData.MusicKind)))
                 {
-                    if (kindType.ToString() == audio.category) { kind = kindType; break; }
+                    if (kindType.ToString() == audio.category)
+                    {
+                        kind = kindType;
+                        break;
+                    }
                 }
+
                 var builder = new BlobBuilder(Allocator.Persistent);
                 ref var root = ref builder.ConstructRoot<MusicData>();
-                MusicData.Construct(builder, ref root, id, id, audio.name, audio.name, new string[] { }, "", audio.name, kind);
+                MusicData.Construct(builder, ref root, id, id, audio.name, audio.name, new string[] { }, "", audio.name,
+                    kind);
                 var x = builder.CreateBlobAssetReference<MusicData>(Allocator.Persistent);
                 AssetDb.Music.TryAdd(id, x.TakeView());
 
-                Debug.Log("Audio Plugin: Registered '" + audio.name + "' (" + audio.source + ") in '" + audio.category + "'");
+                if (LogLevel > ModdingUtils.LogLevel.High)
+                    _logger.LogInfo(
+                        "Registered '" + audio.name + "' (" + audio.source + ") in '" + audio.category + "'");
             }
             else
             {
-                Debug.Log("Audio Plugin: Ignoring Duplicate '" + audio.name + "' (" + audio.source + ") in '" + audio.category + "'");
+                if (LogLevel > ModdingUtils.LogLevel.Medium)
+                    _logger.LogInfo("Ignoring Duplicate '" + audio.name + "' (" + audio.source + ") in '" +
+                                    audio.category + "'");
             }
         }
 
@@ -207,9 +270,13 @@ namespace HolloFox
             var ClipLoaded = (System.Action<AtmosphereManager.LoadedAudioClip, AudioClip>)args[2];
 
             AudioData source = null;
-            foreach(Dictionary<NGuid,AudioData> audioSource in Audio.Values)
+            foreach (Dictionary<NGuid, AudioData> audioSource in Audio.Values)
             {
-                if (audioSource.ContainsKey(__instance.GUID)) { source = audioSource[__instance.GUID]; break; }
+                if (audioSource.ContainsKey(__instance.GUID))
+                {
+                    source = audioSource[__instance.GUID];
+                    break;
+                }
             }
 
             using (UnityWebRequest www = UnityWebRequestMultimedia.GetAudioClip(source.source, AudioType.UNKNOWN))
@@ -217,30 +284,36 @@ namespace HolloFox
                 yield return www.SendWebRequest();
                 if (www.result == UnityWebRequest.Result.ConnectionError)
                 {
-                    Debug.Log("Audio Plugin: Failure To Load ...");
-                    Debug.Log(www.error);
+                    if (LogLevel > ModdingUtils.LogLevel.None) _logger.LogError("Failure To Load ...");
+                    if (LogLevel > ModdingUtils.LogLevel.None) _logger.LogError(www.error);
                 }
                 else
                 {
                     ____clip = DownloadHandlerAudioClip.GetContent(www);
                 }
             }
-            Debug.Log("Audio Plugin: Loaded Clip '" + source.name + "' (" + source.source + ")");
+
+            if (LogLevel > ModdingUtils.LogLevel.Medium)
+                _logger.LogInfo("Loaded Clip '" + source.name + "' (" + source.source + ")");
             ClipLoaded(__instance, ____clip);
         }
 
         IEnumerator PlayAudio(object[] inputs)
         {
             string sourceName = (string)inputs[0];
-            if (!sourceName.Contains("://")) { sourceName = $"file:///" + pluginFolder + "/CustomData/Audio/" + sourceName; }
-            Debug.Log($"Audio Plugin: Requested '{sourceName}'...");
+            if (!sourceName.Contains("://"))
+            {
+                sourceName = $"file:///" + pluginFolder + "/CustomData/Audio/" + sourceName;
+            }
+
+            if (LogLevel > ModdingUtils.LogLevel.Medium) _logger.LogInfo($"Requested '{sourceName}'...");
             using (UnityWebRequest www = UnityWebRequestMultimedia.GetAudioClip(sourceName, AudioType.UNKNOWN))
             {
                 yield return www.SendWebRequest();
                 if (www.result == UnityWebRequest.Result.ConnectionError)
                 {
-                    Debug.Log($"Audio Plugin: Failure To Load '{sourceName}' ...");
-                    Debug.Log(www.error);
+                    if (LogLevel > ModdingUtils.LogLevel.None) _logger.LogError($"Failure To Load '{sourceName}' ...");
+                    if (LogLevel > ModdingUtils.LogLevel.None) _logger.LogError(www.error);
                 }
                 else
                 {
@@ -251,9 +324,10 @@ namespace HolloFox
                         speaker.name = "AudioSpeakerForRemoteRequests";
                         speaker.AddComponent<AudioSource>();
                     }
+
                     AudioSource player = speaker.GetComponent<AudioSource>();
                     player.clip = DownloadHandlerAudioClip.GetContent(www);
-                    Debug.Log($"Audio Plugin: Playing '{sourceName}'...");
+                    if (LogLevel > ModdingUtils.LogLevel.None) _logger.LogInfo($"Playing '{sourceName}'...");
                     player.Play();
                 }
             }

@@ -1,18 +1,18 @@
 ﻿using BepInEx;
 using System;
 using System.Reflection;
-using UnityEngine;
+using ModdingTales;
 
 namespace HolloFox
 {
     public partial class AudioPlugin : BaseUnityPlugin
     {
-
         public static class SoftDependency
         {
             public static void Invoke(string typeName, string methodName, object[] methodParameters)
             {
-                Debug.Log("Audio Plugin: Soft Dependency: Invoking " + methodName + " On " + typeName);
+                if (LogLevel > ModdingUtils.LogLevel.None)
+                    _logger.LogInfo("Soft Dependency: Invoking " + methodName + "On " + typeName);
                 Type t = Type.GetType(typeName);
                 if (t != null)
                 {
@@ -25,26 +25,30 @@ namespace HolloFox
                         }
                         catch (Exception x)
                         {
-                            Debug.Log("Audio Plugin: Soft Dependency: Method Invoke Failed");
-                            Debug.LogException(x);
-                            Debug.Log("Audio Plugin: Soft Dependency: Trying Fallback");
+                            if (LogLevel > ModdingUtils.LogLevel.None)
+                                _logger.LogInfo("Soft Dependency: Method Invoke Failed");
+                            if (LogLevel > ModdingUtils.LogLevel.None) _logger.LogError(x);
+                            if (LogLevel > ModdingUtils.LogLevel.None)
+                                _logger.LogInfo("Soft Dependency: Trying Fallback");
                             InvokeEx(typeName, methodName, methodParameters);
                         }
                     }
                     else
                     {
-                        Debug.Log("Audio Plugin: Soft Dependency: Method Reference Null");
+                        if (LogLevel > ModdingUtils.LogLevel.None)
+                            _logger.LogInfo("Soft Dependency: Method Reference Null");
                     }
                 }
                 else
                 {
-                    Debug.Log("Audio Plugin: Soft Dependency: Type Reference Null");
+                    if (LogLevel > ModdingUtils.LogLevel.None) _logger.LogInfo("Soft Dependency: Type Reference Null");
                 }
             }
 
             public static void InvokeEx(string typeName, string methodName, object[] methodParameters)
             {
-                Debug.Log("Audio Plugin: Soft Dependency: Ex Invoking " + methodName + " On " + typeName);
+                if (LogLevel > ModdingUtils.LogLevel.None)
+                    _logger.LogInfo("Soft Dependency: Ex Invoking " + methodName + "On " + typeName);
                 Type t = Type.GetType(typeName);
                 if (t != null)
                 {
@@ -58,22 +62,29 @@ namespace HolloFox
                             }
                             catch (Exception x)
                             {
-                                Debug.Log("Audio Plugin: Soft Dependency: Ex Method Invoke Failed. Checking For Other Options");
-                                Debug.LogException(x);
-                                Debug.Log("Audio Plugin: Soft Dependency: Checking For Other Options");
+                                if (LogLevel > ModdingUtils.LogLevel.None)
+                                    _logger.LogInfo(
+                                        "Soft Dependency: Ex Method Invoke Failed. Checking For Other Options");
+                                if (LogLevel > ModdingUtils.LogLevel.None) _logger.LogError(x);
+                                if (LogLevel > ModdingUtils.LogLevel.None)
+                                    _logger.LogInfo("Soft Dependency: Checking For Other Options");
                             }
                         }
                 }
                 else
                 {
-                    Debug.Log("Audio Plugin: Soft Dependency: Ex Type Reference Null");
+                    if (LogLevel > ModdingUtils.LogLevel.None)
+                        _logger.LogInfo("Soft Dependency: Ex Type Reference Null");
                 }
-                Debug.Log("Audio Plugin: Soft Dependency: Ex Failed To Find Suitable Invoking Method");
+
+                if (LogLevel > ModdingUtils.LogLevel.None)
+                    _logger.LogInfo("Soft Dependency: Ex Failed To Find Suitable Invoking Method");
             }
 
             public static T GetProperty<T>(string typeName, string propertyName)
             {
-                Debug.Log("Audio Plugin: Soft Dependency: GetProperty " + propertyName + " Of " + typeName);
+                if (LogLevel > ModdingUtils.LogLevel.None)
+                    _logger.LogInfo("Soft Dependency: GetProperty " + propertyName + "Of " + typeName);
                 Type t = Type.GetType(typeName);
                 if (t != null)
                 {
@@ -82,17 +93,21 @@ namespace HolloFox
                     {
                         return (T)p.GetValue(null);
                     }
+
                     FieldInfo f = t.GetField(propertyName);
                     if (f != null)
                     {
                         return (T)f.GetValue(null);
                     }
-                    Debug.Log("Audio Plugin: Soft Dependency: Property/Field Not Found");
+
+                    if (LogLevel > ModdingUtils.LogLevel.None)
+                        _logger.LogInfo("Soft Dependency: Property/Field Not Found");
                 }
                 else
                 {
-                    Debug.Log("Audio Plugin: Soft Dependency: Type Reference Null");
+                    if (LogLevel > ModdingUtils.LogLevel.None) _logger.LogInfo("Soft Dependency: Type Reference Null");
                 }
+
                 return default(T);
             }
         }

@@ -1,0 +1,10 @@
+﻿################################################################################
+# This .gitignore file was automatically created by Microsoft(R) Visual Studio.
+################################################################################
+
+/Plugin/obj/Debug
+/.vs/TaleSpireAudioPlugin/FileContentIndex
+/.vs/Talespire-AudioPlugin/v17
+/Plugin/bin/Debug
+/packages/Newtonsoft.Json.13.0.1
+/.vs/TaleSpireAudioPlugin/v17
