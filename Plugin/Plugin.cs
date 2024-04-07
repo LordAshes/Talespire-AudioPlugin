@@ -4,11 +4,11 @@ using Bounce.TaleSpire.AssetManagement;
 using Bounce.Unmanaged;
 using Bounce.UnsafeViews;
 using HarmonyLib;
+using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Linq;
-using System.Reflection;
 using TaleSpire.ContentManagement;
 using TMPro;
 using Unity.Collections;
@@ -24,7 +24,7 @@ namespace LordAshes
         // Plugin info
         public const string Name = "Audio Plug-In";
         public const string Guid = "org.pluginmasters.plugins.audio";
-        public const string Version = "4.0.0";
+        public const string Version = "4.1.0";
         public const string Author = "Plugin Masters";
 
         // Diagnostics
@@ -59,7 +59,7 @@ namespace LordAshes
 
         /// <summary>
         /// Function for initializing plugin
-        /// This function is called once by TaleSpire
+        /// Main entry into the plugin. Loads configuration settings and sets up initial variables of Ambient and Music audio.
         /// </summary>
         void Awake()
         {
@@ -87,6 +87,11 @@ namespace LordAshes
             Utility.PostOnMainPage(this.GetType());
         }
 
+        /// <summary>
+        /// Function for initializing plugin
+        /// Method for collecting custom audio file in File Access Plugin legal location that are in /Audio/Ambient and /Audio/Music hierarchies. Supported files are ACC, MP3, OGG, WAV and WWW.
+        /// In addition this methods includes vitual audio sources for hierarchy navigation.
+        /// </summary>
         public void GetAllCustomSongs(ref Dictionary<Bounce.TaleSpire.AssetManagement.MusicDataV0.MusicKind, List<string>> customAudioSources)
         {
             customAudioSources.Add(MusicDataV0.MusicKind.Ambient, FileAccessPlugin.File.Find("/Audio/Ambient/").Where(a => ".ACC|.MP3|.OGG|.WAV|.WWW".Contains(System.IO.Path.GetExtension(a).ToUpper())).ToList<string>());
@@ -134,7 +139,10 @@ namespace LordAshes
             }
         }
 
-        public static void RebuildAudioMenu(ref TMP_Dropdown ____dropdown, MusicDataV0.MusicKind ____type, ref List<InternedContentAddress> ____trackList)
+        /// <summary>
+        /// Method for generating the Atmosphere options for Ambient and Music dropdowns  
+        /// </summary>
+        public static void ProcessDropdownCreation(ref TMP_Dropdown ____dropdown, MusicDataV0.MusicKind ____type, ref List<InternedContentAddress> ____trackList)
         {
             if (diagnostics.Value >= DiagnosticLevel.info) { Debug.Log(Name + ": Building Audio Options"); }
 
@@ -145,6 +153,7 @@ namespace LordAshes
             NativeArray<(InternedContentAddress address, UnsafeView<MusicDataV0> data, string name)> vals;
             keyValueArrays.Deconstruct(out keys, out vals);
             SortedDictionary<string, InternedContentAddress> nameToTrackListMapping = new SortedDictionary<string, InternedContentAddress>();
+            SortedDictionary<string, ContentGuid> nameToContentGuidMapping = new SortedDictionary<string, ContentGuid>();
 
             if (coreAudioSources[____type].Count()==0)
             {
@@ -205,163 +214,87 @@ namespace LordAshes
                 }
             }
 
+            if (diagnostics.Value >= DiagnosticLevel.ultra) { Debug.Log(Name + ": Getting Atmosphere Selection"); }
+            ContentGuid atmosphereSelected = (____type== MusicDataV0.MusicKind.Ambient) ? currentAtmo.AmbientMusic.ContentRef.AsContentId : currentAtmo.Music.ContentRef.AsContentId;
+            if (diagnostics.Value >= DiagnosticLevel.ultra) { Debug.Log(Name + ": Atmosphere Selection Is "+Convert.ToString(atmosphereSelected)); }
+            int dropdownSelection = 0;
+            try
+            {
+                if (diagnostics.Value >= DiagnosticLevel.ultra) { Debug.Log(Name + ": Seeking Dropdown Selected Item"); }
+                for (int i = 0; i < nameToTrackListMapping.Count(); i++)
+                {
+                    if (nameToContentGuidMapping.ElementAt(i).Value == atmosphereSelected)
+                    {
+                        dropdownSelection = i;
+                        if (diagnostics.Value >= DiagnosticLevel.ultra) { Debug.Log(Name + ": Current Dropdown Selection Is " + dropdownSelection); }
+                    }
+                }
+            }
+            catch (Exception) {; }
+
             ____trackList.AddRange(nameToTrackListMapping.Values.ToList<InternedContentAddress>());
             ____dropdown.AddOptions(nameToTrackListMapping.Keys.ToList<string>());
+            if (diagnostics.Value >= DiagnosticLevel.ultra) { Debug.Log(Name + ": Applying Current Dropdown Selection Of " + dropdownSelection); }
+            ____dropdown.SetValueWithoutNotify(dropdownSelection);
         }
 
-
-        [HarmonyPatch(typeof(UI_MusicSelectionDropdown), "OnEnable")]
-        public class OnEnablePatches
+        /// <summary>
+        /// Method for processing Atmosphere dropdown slections. Used to intercept and process navigation link entries.
+        /// </summary>
+        public static bool ProcessDropdownSelection(int index, ref TMP_Dropdown ____dropdown, MusicDataV0.MusicKind ____type, ref List<InternedContentAddress> ____trackList)
         {
-            static void Postfix(ref TMP_Dropdown ____dropdown, MusicDataV0.MusicKind ____type, ref List<InternedContentAddress> ____trackList)
+            if (diagnostics.Value >= DiagnosticLevel.info) { Debug.Log(Name + ": Selected '" + ____dropdown.options[index].text + "'"); }
+            if (!____dropdown.options[index].text.EndsWith("►")) { return true; }
+            if (____dropdown.options[index].text == "[Back]►")
             {
-                RebuildAudioMenu(ref ____dropdown, ____type, ref ____trackList);   
+                currentFolder[____type] = currentFolder[____type].Substring(0, currentFolder[____type].LastIndexOf("/"));
             }
-        }
-
-        [HarmonyPatch(typeof(UI_MusicSelectionDropdown), "SelectIndex")]
-        public class OnSelectIndex
-        {
-            static bool Prefix(int index, ref TMP_Dropdown ____dropdown, MusicDataV0.MusicKind ____type, ref List<InternedContentAddress> ____trackList)
+            else
             {
-                if (diagnostics.Value >= DiagnosticLevel.info) { Debug.Log(Name + ": Selected '" + ____dropdown.options[index].text + "'"); }
-                if (!____dropdown.options[index].text.EndsWith("►")) { return true; }
-                if(____dropdown.options[index].text== "[Back]►")
-                {
-                    currentFolder[____type] = currentFolder[____type].Substring(0, currentFolder[____type].LastIndexOf("/"));
-                }
-                else
-                {
-                    currentFolder[____type] = currentFolder[____type] + "/" + ____dropdown.options[index].text.Substring(1, ____dropdown.options[index].text.Length-3);
-                }
-                currentFolder[____type] = currentFolder[____type].Replace("\\", "/");
-                if (diagnostics.Value >= DiagnosticLevel.debug) { Debug.Log(Name + ": Current Folder Is '" + currentFolder[____type] + "'"); }
-                RebuildAudioMenu(ref ____dropdown, ____type, ref ____trackList);
-                return false;
+                currentFolder[____type] = currentFolder[____type] + "/" + ____dropdown.options[index].text.Substring(1, ____dropdown.options[index].text.Length - 3);
             }
+            currentFolder[____type] = currentFolder[____type].Replace("\\", "/");
+            if (diagnostics.Value >= DiagnosticLevel.debug) { Debug.Log(Name + ": Current Folder Is '" + currentFolder[____type] + "'"); }
+            ProcessDropdownCreation(ref ____dropdown, ____type, ref ____trackList);
+            return false;
         }
 
-        public class MyCustomMusicContentProvider : ContentManager.IContentProvider, ContentManager.IProvidesMusicDataContent, ContentManager.IProvidesAudioClipContent
+        /// <summary>
+        /// Method to load AudioClips based on name
+        /// </summary>
+        public static void ProcessAudioClipLoad(NativeHashMap<ContentGuid, (InternedContentAddress address, UnsafeView<MusicDataV0> data, string name)> Music, ContentManager.Destination contentDestination, in InternedContentAddress contentAddress)
         {
-            public static NativeHashMap<ContentGuid, (InternedContentAddress address, UnsafeView<MusicDataV0> data,string name)> Music;
-
-            /// <inheritdoc />
-            public void FetchAudioClip(ContentManager.Destination contentDestination, in InternedContentAddress contentAddress)
+            if (Music.TryGetValue(contentAddress.ContentRef.AsContentId, out var data))
             {
-                if (Music.TryGetValue(contentAddress.ContentRef.AsContentId, out var data))
-                {
-                    if (diagnostics.Value >= DiagnosticLevel.ultra) { Debug.Log(data.Item2.Value.Kind.ToString() + ": " + data.Item2.Value.Name.GetString() + ": " + data.Item2.Value.Description.GetString() + ": " + data.Item2.Value.Address.ToUri()); }
+                if (diagnostics.Value >= DiagnosticLevel.ultra) { Debug.Log(data.Item2.Value.Kind.ToString() + ": " + data.Item2.Value.Name.GetString() + ": " + data.Item2.Value.Description.GetString() + ": " + data.Item2.Value.Address.ToUri()); }
 
-                    string audio = FileAccessPlugin.File.Find("/Audio/"+data.Item2.Value.Name.GetString().Replace("♫", "").Replace("♪","")).ElementAt(0);
-                    if(System.IO.Path.GetExtension(audio).ToUpper()==".WWW")
+                string audio = FileAccessPlugin.File.Find("/Audio/" + data.Item2.Value.Name.GetString().Replace("♫", "").Replace("♪", "")).ElementAt(0);
+                if (System.IO.Path.GetExtension(audio).ToUpper() == ".WWW")
+                {
+                    audio = FileAccessPlugin.File.ReadAllText(audio);
+                }
+                if (!audio.ToUpper().StartsWith("HTTP")) { audio = "file:/" + audio; }
+
+                using (UnityWebRequest www = UnityWebRequestMultimedia.GetAudioClip(audio, AudioType.UNKNOWN))
+                {
+                    www.SendWebRequest();
+                    while (!www.isDone) { }
+                    if (www.result == UnityWebRequest.Result.ConnectionError)
                     {
-                        audio = FileAccessPlugin.File.ReadAllText(audio);
+                        Debug.LogWarning(Name + ": Failure To Load Clip '" + audio + "'");
+                        Debug.LogWarning(Name + ": " + www.error);
                     }
-                    if (!audio.ToUpper().StartsWith("HTTP")) { audio = "file:/" + audio; }
-
-                    using (UnityWebRequest www = UnityWebRequestMultimedia.GetAudioClip(audio, AudioType.UNKNOWN))
+                    else
                     {
-                        www.SendWebRequest();
-                        while (!www.isDone) { }
-                        if (www.result == UnityWebRequest.Result.ConnectionError)
-                        {
-                            Debug.LogWarning(Name+": Failure To Load Clip '"+audio+"'");
-                            Debug.LogWarning(Name+": "+www.error);
-                        }
-                        else
-                        {
-                            var clip = DownloadHandlerAudioClip.GetContent(www);
-                            ContentManager.TryDeliverContent(contentDestination, clip);
-                        }
-                    }
-                }
-                else
-                {
-                    Debug.LogWarning(Name+": Requested Item Address "+ contentAddress.ContentRef.AsContentId + " Not Registered.");
-                    ContentManager.TryDeliverFailure(contentDestination, ContentLoadFailureReason.ContentNotFoundInPack);
-                }
-            }
-
-            /// <inheritdoc />
-            public void FetchMusicData(ContentManager.Destination contentDestination,
-                in InternedContentAddress contentAddress)
-            {
-                if (Music.TryGetValue(contentAddress.ContentRef.AsContentId, out var data))
-                    ContentManager.TryDeliverContent(contentDestination, in data.data);
-                else
-                    ContentManager.TryDeliverFailure(contentDestination,
-                        ContentLoadFailureReason.ContentNotFoundInPack);
-            }
-
-            public MyCustomMusicContentProvider()
-            {
-                Music = new NativeHashMap<ContentGuid, (InternedContentAddress, UnsafeView<MusicDataV0>, string)>(128, Allocator.Persistent);
-                NGuid.TryGenerateNewGuid(out var packIdNguid);
-                var packId = new ContentAddress.Packed.SemiInternedPackId(new SourceLocalPackId(packIdNguid.Data));
-                var packSource = (InternedPackSource)typeof(InternedPackSource).GetConstructor(BindingFlags.NonPublic | BindingFlags.Instance, null, new[] { typeof(PackSourceKind) }, null)!.Invoke(new object[] { PackSourceKind.Unknown });
-                var internedPackId = new InternedPackId(packSource, packId.SourceLocalPackId, new MD5());
-
-                foreach (MusicDataV0.MusicKind kind in Enum.GetValues(typeof(MusicDataV0.MusicKind)))
-                {
-                    for (var i = 0; i < customAudioSources[kind].Count(); i++)
-                    {
-                        NGuid.TryGenerateNewGuid(out var id);
-                        ref var singleTrack = ref BSR.Builder<MusicDataV0>.Create(Allocator.Persistent, out var builder);
-                        var contentId = new ContentGuid(id);
-                        var address = ContentAddress.CreateFromParts(PackSourceKind.Unknown, "".AsSpan(), packId.SourceLocalPackId, contentId);
-
-                        MusicDataV0.Construct(contentId, ref builder, ref singleTrack, address, customAudioSources[kind][i], "", Array.Empty<string>(), kind);
-                        var musicData = builder.Complete(Allocator.Persistent).TakeView();
-                        Music.TryAdd(musicData.Value.Id, (new InternedContentAddress(internedPackId, musicData.Value.Address.ContentRef), musicData, customAudioSources[kind][i]));
+                        var clip = DownloadHandlerAudioClip.GetContent(www);
+                        ContentManager.TryDeliverContent(contentDestination, clip);
                     }
                 }
             }
-        }
-
-        [HarmonyPatch(typeof(InternalPackManager), "OnInstanceSetup")]
-        public class OnSetupPatches
-        {
-            static void Postfix()
+            else
             {
-                ContentManager.RegisterContentProvider((ContentProviderKind)100, new MyCustomMusicContentProvider());
-            }
-        }
-
-        [HarmonyPatch(typeof(ContentManager), "ProviderKindToPackSourceKind")]
-        public class PatchProviderLookup
-        {
-            static bool Prefix(ref PackSourceKind __result, ContentProviderKind providerKind)
-            {
-                switch (providerKind)
-                {
-                    case ContentProviderKind.Internal:
-                        __result = PackSourceKind.Internal;
-                        break;
-                    case ContentProviderKind.BrHeroForge:
-                        __result = PackSourceKind.BrHeroForge;
-                        break;
-                    case ContentProviderKind.BrModIo:
-                        __result = PackSourceKind.BrModIo;
-                        break;
-                    case ContentProviderKind.Repository:
-                        __result = PackSourceKind.Repository;
-                        break;
-                    case ContentProviderKind.Unmanaged:
-                        __result = PackSourceKind.Unmanaged;
-                        break;
-                    case ContentProviderKind.Https:
-                        __result = PackSourceKind.Https;
-                        break;
-                    default:
-                        if ((int)providerKind == 100)
-                        {
-                            __result = PackSourceKind.Unknown;
-                        }
-
-                        break;
-                }
-
-                return false;
+                Debug.LogWarning(Name + ": Requested Item Address " + contentAddress.ContentRef.AsContentId + " Not Registered.");
+                ContentManager.TryDeliverFailure(contentDestination, ContentLoadFailureReason.ContentNotFoundInPack);
             }
         }
     }
